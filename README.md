@@ -1,50 +1,63 @@
-# PDF Case Highlighter
+# PDF Case Highlighter + Copilot
 
-An intelligent PDF highlighter that uses LLMs to identify and highlight important phrases in case study PDFs.
+A simple toolkit for highlighting case PDFs and a Streamlit copilot app for reading, summarizing, and annotating cases.
 
-## How It Works
+## What You Can Do
 
-1. **Extract text per page** from the PDF
-2. **Ask the LLM** for important verbatim quotes (6-25 words) with page numbers
-3. **Find those phrases** on the right page using robust matching (exact → chunk → fuzzy)
-4. **Highlight them** in the PDF and return the annotated file
+- Highlight important quotes in PDFs with LLMs
+- Generate summaries and key points
+- Explain specific pages while you read
+- Add manual highlights and notes
 
-## End-to-End Workflow
+## Setup
 
-This is the full app flow from CLI to output:
-
-1. **CLI entry**: `main.py` parses arguments, loads `.env`, validates the input PDF, and computes the output path.
-2. **Text extraction**: `extract_text_per_page()` in `pdf_highlighter.py` uses PyMuPDF to extract raw text per page into a list of `{page, text}` objects.
-3. **Highlight source (two paths)**. LLM path (default): `extract_highlights_from_pdf()` iterates pages and calls `extract_highlights_from_page()` for each page. Each page prompt asks for 3–7 verbatim quotes (6–25 words) and a label. Results are normalized so each highlight has the correct 1-based page number. If `--full-context` is set, the app sends the entire document (with page markers) in a single LLM call via `extract_highlights_from_pdf_fullcontext()` and asks for quotes across the whole case. If `--max-total` is set, `cap_total_highlights()` optionally re-ranks across pages and keeps the top N. Skip-LLM path: `--skip-llm --highlights-json <file>` loads a prebuilt JSON list of `{page, quote, label}` objects.
-4. **Highlighting**: `highlight_pdf()` iterates the highlights and tries to locate each quote on its page using:
-   - Exact search (raw quote and normalized quote)
-   - Chunk search (sliding word windows across the quote)
-   - Fuzzy match (best line match, then search on that line)
-5. **Annotate and save**: Highlight annotations are added to the PDF and the result is written to `*_highlighted.pdf`.
-
-## Installation
+1. Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Usage
-
-### Basic Usage
-
-Put your OpenAI API key in a `.env` file in the project folder:
+2. Add your OpenAI API key in a `.env` file at the project root:
 
 ```
 OPENAI_API_KEY=sk-your-key-here
 ```
 
-Then run:
+## Use the App (Recommended)
+
+Run the Streamlit copilot UI:
+
+```bash
+streamlit run app.py
+```
+
+What’s inside:
+- PDF reader with single-page and multi-page modes
+- Full-document summary
+- Auto-highlights (full-document context toggle)
+- Manual highlights with labels and notes
+- Page explanations on demand
+- Download annotated PDF
+
+By default the app reads `OPENAI_API_KEY` from `.env`. You can override it in the sidebar if needed.
+
+## Use the Script Only (CLI)
+
+Basic usage:
 
 ```bash
 python main.py input.pdf
 ```
 
-This will create `input_highlighted.pdf` with highlights. You can also set `OPENAI_API_KEY` in your shell or pass `--api-key` on the command line.
+This creates `input_highlighted.pdf` with highlights.
+
+### Full-Document Context
+
+Use full-document context to improve quote selection:
+
+```bash
+python main.py input.pdf --full-context
+```
 
 ### Advanced Options
 
@@ -58,7 +71,7 @@ python main.py input.pdf \
 
 ### Testing Without LLM
 
-You can test the highlighting logic with a pre-made highlights JSON:
+Provide a predefined highlights JSON:
 
 ```json
 {
@@ -94,6 +107,13 @@ python main.py input.pdf --skip-llm --highlights-json highlights.json
 - `--skip-llm`: Skip LLM extraction (use with `--highlights-json`)
 - `--highlights-json`: Path to JSON file with highlights
 
+## How It Works (Pipeline)
+
+1. **Extract text per page** from the PDF
+2. **Ask the LLM** for important verbatim quotes (6–25 words) with page numbers
+3. **Find those phrases** on the right page using robust matching (exact → chunk → fuzzy)
+4. **Highlight them** in the PDF and return the annotated file
+
 ## Matching Strategy
 
 The highlighter uses a three-layer matching strategy:
@@ -126,4 +146,4 @@ Labels are stored in the PDF annotation metadata.
 - PyMuPDF (fitz) for PDF operations
 - rapidfuzz for fuzzy matching
 - OpenAI Python client for LLM integration
-# case_highlighter
+- Streamlit for the copilot app

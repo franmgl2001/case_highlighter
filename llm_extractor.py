@@ -48,6 +48,29 @@ Document:
 {doc_text}
 """
 
+SUMMARY_SYSTEM_PROMPT = """You summarize business case documents.
+Return JSON only. Be concise and structured."""
+
+SUMMARY_USER_PROMPT_TEMPLATE = """Summarize the case document below.
+
+Return JSON with:
+- "summary": 5-8 sentences max
+- "key_points": 6-10 bullet points
+- "open_questions": 3-6 questions a reader should investigate
+
+Document:
+{doc_text}
+"""
+
+PAGE_EXPLAIN_SYSTEM_PROMPT = """You explain a single page from a case document.
+Return plain text. Be concise and helpful."""
+
+PAGE_EXPLAIN_USER_PROMPT_TEMPLATE = """Explain this page in 4-6 sentences.
+Focus on what matters for decision making.
+
+Page {page_num}:
+{page_text}
+"""
 
 def extract_highlights_from_page(
     client: OpenAI, page_num: int, page_text: str, model: str = "gpt-4o-mini"
@@ -145,6 +168,112 @@ def _build_full_doc_text(pages: List[Dict[str, any]]) -> str:
         parts.append(f"<<<PAGE {page_num}>>>\n{page_text}\n")
     return "\n".join(parts)
 
+
+def _summarize_chunk(
+    client: OpenAI,
+    doc_text: str,
+    model: str,
+) -> Dict:
+    prompt = SUMMARY_USER_PROMPT_TEMPLATE.format(doc_text=doc_text)
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        response_format={"type": "json_object"},
+        temperature=0.3,
+    )
+    content = response.choices[0].message.content
+    return json.loads(content)
+
+
+def summarize_document(
+    client: OpenAI,
+    pages: List[Dict[str, any]],
+    model: str = "gpt-4o-mini",
+    max_context_chars: int = 120000,
+) -> Dict:
+    """
+    Summarize the full document. If too large, summarize chunks then summarize the summaries.
+    Returns dict with keys: summary, key_points, open_questions.
+    """
+    doc_text = _build_full_doc_text(pages)
+    if len(doc_text) <= max_context_chars:
+        try:
+            return _summarize_chunk(client, doc_text, model)
+        except Exception as e:
+            print(f"Error summarizing full document: {e}")
+            return {}
+
+    # Chunk by pages to stay under max_context_chars
+    chunks = []
+    current = []
+    current_len = 0
+    for page_info in pages:
+        block = f"<<<PAGE {page_info['page']}>>>\n{page_info['text']}\n"
+        if current_len + len(block) > max_context_chars and current:
+            chunks.append("\n".join(current))
+            current = [block]
+            current_len = len(block)
+        else:
+            current.append(block)
+            current_len += len(block)
+    if current:
+        chunks.append("\n".join(current))
+
+    summaries = []
+    for i, chunk in enumerate(chunks, start=1):
+        try:
+            print(f"Summarizing chunk {i}/{len(chunks)}...")
+            summaries.append(_summarize_chunk(client, chunk, model))
+        except Exception as e:
+            print(f"Error summarizing chunk {i}: {e}")
+
+    if not summaries:
+        return {}
+
+    # Combine chunk summaries into a final summary
+    combined = "\n".join(
+        [
+            f"Chunk {i+1} summary: {s.get('summary','')}\n"
+            f"Key points: {', '.join(s.get('key_points', []))}\n"
+            f"Open questions: {', '.join(s.get('open_questions', []))}"
+            for i, s in enumerate(summaries)
+        ]
+    )
+    try:
+        return _summarize_chunk(client, combined, model)
+    except Exception as e:
+        print(f"Error summarizing combined chunks: {e}")
+        return summaries[0] if summaries else {}
+
+
+def explain_page(
+    client: OpenAI,
+    page_num: int,
+    page_text: str,
+    model: str = "gpt-4o-mini",
+) -> str:
+    """
+    Explain a single page for a reader.
+    """
+    prompt = PAGE_EXPLAIN_USER_PROMPT_TEMPLATE.format(
+        page_num=page_num, page_text=page_text
+    )
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": PAGE_EXPLAIN_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.3,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"Error explaining page {page_num}: {e}")
+        return ""
 
 def extract_highlights_from_pdf_fullcontext(
     client: OpenAI,
