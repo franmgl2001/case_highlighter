@@ -15,7 +15,7 @@ This is the full app flow from CLI to output:
 
 1. **CLI entry**: `main.py` parses arguments, loads `.env`, validates the input PDF, and computes the output path.
 2. **Text extraction**: `extract_text_per_page()` in `pdf_highlighter.py` uses PyMuPDF to extract raw text per page into a list of `{page, text}` objects.
-3. **Highlight source (two paths)**. LLM path (default): `extract_highlights_from_pdf()` iterates pages and calls `extract_highlights_from_page()` for each page. Each page prompt asks for 3–7 verbatim quotes (6–25 words) and a label. Results are normalized so each highlight has the correct 1-based page number. If `--max-total` is set, `cap_total_highlights()` optionally re-ranks across pages and keeps the top N. Skip-LLM path: `--skip-llm --highlights-json <file>` loads a prebuilt JSON list of `{page, quote, label}` objects.
+3. **Highlight source (two paths)**. LLM path (default): `extract_highlights_from_pdf()` iterates pages and calls `extract_highlights_from_page()` for each page. Each page prompt asks for 3–7 verbatim quotes (6–25 words) and a label. Results are normalized so each highlight has the correct 1-based page number. If `--full-context` is set, the app sends the entire document (with page markers) in a single LLM call via `extract_highlights_from_pdf_fullcontext()` and asks for quotes across the whole case. If `--max-total` is set, `cap_total_highlights()` optionally re-ranks across pages and keeps the top N. Skip-LLM path: `--skip-llm --highlights-json <file>` loads a prebuilt JSON list of `{page, quote, label}` objects.
 4. **Highlighting**: `highlight_pdf()` iterates the highlights and tries to locate each quote on its page using:
    - Exact search (raw quote and normalized quote)
    - Chunk search (sliding word windows across the quote)
@@ -89,6 +89,8 @@ python main.py input.pdf --skip-llm --highlights-json highlights.json
 - `--model`: Model to use (default: `gpt-4o-mini`)
 - `--max-per-page`: Max highlights per page (default: 7)
 - `--max-total`: Max total highlights across all pages (optional)
+- `--full-context`: Use full-document context in a single LLM call (if size permits)
+- `--max-context-chars`: Max characters for full-context prompt before fallback (default: 120000)
 - `--skip-llm`: Skip LLM extraction (use with `--highlights-json`)
 - `--highlights-json`: Path to JSON file with highlights
 

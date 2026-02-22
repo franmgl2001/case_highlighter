@@ -11,7 +11,11 @@ load_dotenv()  # load OPENAI_API_KEY from .env if present
 
 from openai import OpenAI
 from pdf_highlighter import extract_text_per_page, highlight_pdf
-from llm_extractor import extract_highlights_from_pdf, cap_total_highlights
+from llm_extractor import (
+    extract_highlights_from_pdf,
+    extract_highlights_from_pdf_fullcontext,
+    cap_total_highlights,
+)
 
 
 def main():
@@ -39,6 +43,17 @@ def main():
         type=int,
         default=7,
         help="Maximum highlights per page (default: 7)"
+    )
+    parser.add_argument(
+        "--full-context",
+        action="store_true",
+        help="Use full-document context in a single LLM call (if size permits)"
+    )
+    parser.add_argument(
+        "--max-context-chars",
+        type=int,
+        default=120000,
+        help="Max characters for full-context prompt before fallback (default: 120000)"
     )
     parser.add_argument(
         "--max-total",
@@ -98,12 +113,21 @@ def main():
         client = OpenAI(api_key=api_key)
         
         print(f"Extracting highlights using {args.model}...")
-        highlights = extract_highlights_from_pdf(
-            client,
-            pages,
-            model=args.model,
-            max_highlights_per_page=args.max_per_page
-        )
+        if args.full_context:
+            highlights = extract_highlights_from_pdf_fullcontext(
+                client,
+                pages,
+                model=args.model,
+                max_context_chars=args.max_context_chars,
+                max_highlights_per_page=args.max_per_page,
+            )
+        else:
+            highlights = extract_highlights_from_pdf(
+                client,
+                pages,
+                model=args.model,
+                max_highlights_per_page=args.max_per_page
+            )
         
         # Optionally cap total highlights
         if args.max_total and len(highlights) > args.max_total:
@@ -127,4 +151,3 @@ def main():
 
 if __name__ == "__main__":
     exit(main())
-

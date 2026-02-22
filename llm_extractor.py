@@ -25,6 +25,29 @@ Text:
 {page_text}
 """
 
+FULL_CONTEXT_SYSTEM_PROMPT = """You extract ONLY verbatim quotes from the provided full document text.
+Return JSON. No paraphrases. Your job is to identify the most important phrases that should be highlighted."""
+
+FULL_CONTEXT_USER_PROMPT_TEMPLATE = """Goal: highlight the most important phrases for case understanding across the entire document.
+
+Rules:
+- Choose 15–35 quotes from the full document (unless the document is very short).
+- Each quote must be copied EXACTLY from the document text (verbatim, no changes).
+- 6–25 words per quote (1 sentence max).
+- Include page number in each highlight.
+- Add a label tag: Problem, Constraint, Numbers, Decision, Risk, Insight, or other relevant category.
+- Output JSON: {{"highlights":[{{"page":<page>, "quote":"...", "label":"..."}}]}}
+
+The document text below includes page markers like:
+<<<PAGE 1>>>
+...text...
+<<<PAGE 2>>>
+...text...
+
+Document:
+{doc_text}
+"""
+
 
 def extract_highlights_from_page(
     client: OpenAI, page_num: int, page_text: str, model: str = "gpt-4o-mini"
@@ -112,6 +135,66 @@ def extract_highlights_from_pdf(
         print(f"  Found {len(highlights)} highlights on page {page_num}")
 
     return all_highlights
+
+
+def _build_full_doc_text(pages: List[Dict[str, any]]) -> str:
+    parts = []
+    for page_info in pages:
+        page_num = page_info["page"]
+        page_text = page_info["text"] or ""
+        parts.append(f"<<<PAGE {page_num}>>>\n{page_text}\n")
+    return "\n".join(parts)
+
+
+def extract_highlights_from_pdf_fullcontext(
+    client: OpenAI,
+    pages: List[Dict[str, any]],
+    model: str = "gpt-4o-mini",
+    max_context_chars: int = 120000,
+    max_highlights_per_page: int = 7,
+) -> List[Dict]:
+    """
+    Extract highlights from the full document context in a single prompt.
+    Falls back to per-page extraction if the document is too large.
+    """
+    doc_text = _build_full_doc_text(pages)
+    if len(doc_text) > max_context_chars:
+        print(
+            f"Full document text is {len(doc_text)} chars; "
+            f"exceeds max_context_chars={max_context_chars}. "
+            "Falling back to per-page extraction."
+        )
+        return extract_highlights_from_pdf(
+            client,
+            pages,
+            model=model,
+            max_highlights_per_page=max_highlights_per_page,
+        )
+
+    prompt = FULL_CONTEXT_USER_PROMPT_TEMPLATE.format(doc_text=doc_text)
+
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": FULL_CONTEXT_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.3,
+        )
+
+        content = response.choices[0].message.content
+        result = json.loads(content)
+        highlights = result.get("highlights", [])
+        return highlights
+
+    except json.JSONDecodeError as e:
+        print(f"Error parsing JSON from full-context LLM: {e}")
+        return []
+    except Exception as e:
+        print(f"Error calling full-context LLM: {e}")
+        return []
 
 
 def cap_total_highlights(
